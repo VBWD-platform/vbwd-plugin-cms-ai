@@ -126,7 +126,9 @@ def generate():
             context=context,
         )
     except _service_module().CmsAiGenerateError as generation_error:
-        logger.error("cms-ai generation failed: %s", generation_error)
+        # exc_info logs the chained cause (the underlying LoopForgeError) to the
+        # server log; the response body stays a safe, key-free message.
+        logger.error("cms-ai generation failed: %s", generation_error, exc_info=True)
         return jsonify({"error": "AI generation failed"}), 500
 
     return jsonify(result), 200
@@ -162,7 +164,7 @@ def generate_image():
     try:
         result = service.generate(prompt=prompt, content_html=content_html)
     except _image_service_module().CmsAiImageError as image_error:
-        logger.error("cms-ai image generation failed: %s", image_error)
+        logger.error("cms-ai image generation failed: %s", image_error, exc_info=True)
         return jsonify({"error": "Image generation failed"}), 400
 
     return jsonify(result), 200

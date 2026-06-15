@@ -1,0 +1,13 @@
+{
+  "image_url_path": "/uploads/images/ai-generated-18.jpg",
+  "generate_provider": "anthropic",
+  "generate_model": "claude-sonnet-4-5",
+  "article_html_present": true,
+  "restyle_patch_keys": [
+    "content_html",
+    "source_css"
+  ],
+  "source_css_applied": true,
+  "saved_content_html_len": 1633,
+  "saved_slug": "vbwd-google-analytics-alternatives-ai-live-0nand"
+}

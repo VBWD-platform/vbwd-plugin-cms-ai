@@ -1,0 +1,164 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<title>S41 — CMS AI Helper (LoopForge) live walkthrough</title>
+<style>
+  body { font-family: -apple-system, Segoe UI, sans-serif; max-width: 1100px; margin: 2rem auto; padding: 0 1rem; color: #1a202c; }
+  h1 { border-bottom: 3px solid #3182ce; padding-bottom: .5rem; }
+  .meta { color: #4a5568; }
+  .lead { background: #f7fafc; border-left: 4px solid #3182ce; padding: .8rem 1rem; border-radius: 4px; margin: 1.2rem 0; }
+  .step { margin: 2.5rem 0; }
+  .step h2 { color: #2c5282; }
+  .step img { width: 100%; border: 1px solid #cbd5e0; border-radius: 6px; box-shadow: 0 2px 8px rgba(0,0,0,.08); }
+  code { background: #edf2f7; padding: .1em .3em; border-radius: 3px; }
+  .ok { color: #22543d; font-weight: 600; }
+  .gap { color: #975a16; font-weight: 600; }
+  .findings { background: #fffaf0; border-left: 4px solid #dd6b20; padding: .8rem 1rem; border-radius: 4px; margin: 1.5rem 0; }
+  table { border-collapse: collapse; width: 100%; margin: 1rem 0; }
+  th, td { border: 1px solid #cbd5e0; padding: .4rem .6rem; text-align: left; font-size: .92rem; }
+  th { background: #edf2f7; }
+</style></head><body>
+<h1>S41 — CMS AI Helper (LoopForge)</h1>
+<p class="meta">2026-06-15 · Sprint <code>S41</code> · Verified live on the running local stack
+(fe-admin <code>:8081</code>, fe-user <code>:8080</code>, api <code>:5000</code>) with Playwright (headless Chromium).
+<b>Real provider calls:</b> Anthropic <code>claude-sonnet-4-5</code> for <code>/generate</code> and
+Replicate <code>black-forest-labs/flux-schnell</code> for <code>/generate-image</code>. The Playwright spec
+(<code>vbwd-fe-admin/vue/tests/e2e/s41-cms-ai-walkthrough.spec.ts</code>) asserts the mechanics; the
+&ldquo;looks like backlinko&rdquo; comparison is proof-of-work, human-judged (<b>not</b> a pixel diff).</p>
+
+<div class="lead">
+<b>What S41 delivers (this walkthrough exercises it in the browser):</b>
+<ul>
+<li>An <b>AI&nbsp;✨</b> dropdown + collapsible <b>AI assistant</b> panel on the unified CMS post/page editor
+(<code>PostEditor.vue</code>), added through AI-agnostic editor seams — <code>cms-admin</code> imports no AI code.</li>
+<li><b>Backend-proxied generation</b> (the LLM/Replicate keys never reach the browser) through the new
+<b>LoopForge</b> engine: dual-protocol LLM adapter (OpenAI + Anthropic, picked by model name), JSON-mode +
+repair, and a Replicate image adapter.</li>
+<li><b>Image generation</b> (prompt → FLUX) uploaded <b>immediately to the global CMS image gallery</b> (reusing
+CMS's own <code>CmsImageService</code>) and referenced from the post body.</li>
+<li><b>Restyle / &ldquo;Override styles&rdquo;</b> → a full <code>source_css</code> stylesheet written into the
+editor's CSS tab, persisted on Save and applied on the public fe-user page.</li>
+</ul>
+<p><b>Observed this run</b> (<code>proof.json</code>, all assertions GREEN): provider <code>anthropic</code> /
+model <code>claude-sonnet-4-5</code>; image stored at <code>/uploads/images/ai-generated-18.jpg</code>; the
+<b>article action persisted a real body</b> (<code>content_html</code> = <b>1,633 chars</b> on the saved post,
+verified via the admin API) and the <b>restyle action applied <code>source_css</code></b>; the published post
+<code>vbwd-google-analytics-alternatives-ai-live-0nand</code> is served by fe-user (HTTP&nbsp;200) and
+<b>renders the AI article with the AI override styling</b> (serif hero + body — see step&nbsp;10). The API/Replicate
+keys never appear in any response payload (asserted).</p>
+</div>
+
+<section class="step">
+  <h2>1. fe-admin — the <code>AI ✨</code> dropdown in the editor header</h2>
+  <p>On the post/page editor, the <b>AI&nbsp;✨</b> button (registered into the <code>cmsEditorHeaderActions</code>
+  seam) opens a dropdown of actions — <b>Write an article from excerpt</b>, <b>Re-generate all SEO fields</b>,
+  <b>Restyle the page</b>. <span class="ok">Observed: the dropdown renders in the header action bar.</span></p>
+  <a href="s41-cms-ai-shots/step-01-ai-dropdown.png"><img src="s41-cms-ai-shots/step-01-ai-dropdown.png" alt="AI dropdown in the editor header" /></a>
+</section>
+
+<section class="step">
+  <h2>2. fe-admin — the collapsible AI assistant panel</h2>
+  <p>Below the header (the <code>cmsEditorPanels</code> seam) sits the <b>AI assistant</b> panel: a 3-row prompt
+  textarea, a <b>Read excerpt</b> checkbox, a <b>Generate only image from the prompt</b> checkbox, and a
+  <b>Generate</b> button. It is styled only through the fe-core design system (no bespoke CSS).
+  <span class="ok">Observed: the panel renders between header and body.</span></p>
+  <a href="s41-cms-ai-shots/step-02-ai-panel.png"><img src="s41-cms-ai-shots/step-02-ai-panel.png" alt="Collapsible AI assistant panel" /></a>
+</section>
+
+<section class="step">
+  <h2>3. Image generation — the prompt (real Replicate FLUX)</h2>
+  <p>With <b>&ldquo;Generate only image from the prompt&rdquo;</b> checked, an image prompt
+  (<i>&ldquo;a clean modern hero illustration of a SaaS analytics dashboard…&rdquo;</i>) is entered and
+  <b>Generate</b> clicked. The browser posts to <code>POST /api/v1/plugins/cms-ai/generate-image</code>; the
+  backend calls Replicate's <code>black-forest-labs/flux-schnell</code> server-side.
+  <span class="ok">Observed: HTTP&nbsp;200; the response carries the gallery <code>url_path</code> and the Replicate token never appears in it.</span></p>
+  <a href="s41-cms-ai-shots/step-03-image-prompt.png"><img src="s41-cms-ai-shots/step-03-image-prompt.png" alt="Image generation prompt" /></a>
+</section>
+
+<section class="step">
+  <h2>4. Image generation — the <code>&lt;img&gt;</code> appended to the editor body</h2>
+  <p>The generated image is appended to <code>content_html</code> as an
+  <code>&lt;img … data-cms-image=…&gt;</code> referencing the gallery asset, written into the editor's HTML tab.
+  <span class="ok">Observed: the image lands in the body.</span></p>
+  <a href="s41-cms-ai-shots/step-04-image-in-editor.png"><img src="s41-cms-ai-shots/step-04-image-in-editor.png" alt="Generated image in the editor body" /></a>
+</section>
+
+<section class="step">
+  <h2>5. Image generation — the same image now in the global gallery</h2>
+  <p>Navigating to <code>/admin/cms/images</code>: the FLUX-generated images
+  (<code>ai-generated-7…14</code>, 1024×1024) are present in the <b>global Image Gallery</b>, uploaded by the
+  backend via CMS's own <code>CmsImageService.upload_image</code> — persisted immediately, before the post is
+  saved. <span class="ok">Observed: the AI images are real entries in the shared gallery.</span></p>
+  <a href="s41-cms-ai-shots/step-05-image-in-gallery.png"><img src="s41-cms-ai-shots/step-05-image-in-gallery.png" alt="AI-generated images in the global gallery" /></a>
+</section>
+
+<section class="step">
+  <h2>6. Headline test — the &ldquo;Override styles&rdquo; prompt</h2>
+  <p>The headline live test: <i>&ldquo;make me a page which looks like
+  <code>https://backlinko.com/google-analytics-alternatives</code> and it is a post about VBWD. Override
+  styles&rdquo;</i> drives the <b>Restyle</b> action (manifest <code>response_fields: {source_css, content_html}</code>).
+  <span class="ok">Observed: HTTP&nbsp;200 from <code>/generate</code>; the model returned a
+  <code>source_css</code> stylesheet; no API key in the payload.</span></p>
+  <a href="s41-cms-ai-shots/step-06-headline-prompt.png"><img src="s41-cms-ai-shots/step-06-headline-prompt.png" alt="Headline override-styles prompt" /></a>
+</section>
+
+<section class="step">
+  <h2>7. Editor — the body (HTML) tab with the AI article</h2>
+  <p>The walkthrough ran the <b>article</b> action on a <b>post</b> (TipTap/Visual body editor), then the restyle.
+  <span class="ok">Observed: the AI article lands in the editor body and <b>persists on Save</b> —
+  <code>content_html</code> = 1,633 chars on the saved post (admin-API verified). This is the Slice&nbsp;3c fix:
+  <code>applyEditorPatch</code> now seeds the TipTap doc via <code>setFromHtml</code> so its normalising echo no
+  longer clobbers the AI HTML.</span></p>
+  <a href="s41-cms-ai-shots/step-07-content-html.png"><img src="s41-cms-ai-shots/step-07-content-html.png" alt="Editor HTML tab after generation" /></a>
+</section>
+
+<section class="step">
+  <h2>8. Editor — the generated <code>source_css</code> (CSS tab)</h2>
+  <p>The CSS tab holds the model-generated override stylesheet (5,480 chars: reset, hero heading, body
+  typography, spacing, links/lists). <span class="ok">Observed: <code>source_css</code> populated and (after
+  Save) persisted on the post (verified via the public API).</span></p>
+  <a href="s41-cms-ai-shots/step-08-source-css.png"><img src="s41-cms-ai-shots/step-08-source-css.png" alt="Generated source_css in the CSS tab" /></a>
+</section>
+
+<section class="step">
+  <h2>9. Save &amp; publish</h2>
+  <p>The post is set to <b>Published</b> and saved (the create flow lands a new post as draft, so the test saves,
+  re-selects Published, and saves again — an update — so the public route serves it).
+  <span class="ok">Observed: the post persists with a slug and <code>status: published</code>.</span></p>
+  <a href="s41-cms-ai-shots/step-09-saved.png"><img src="s41-cms-ai-shots/step-09-saved.png" alt="Saved and published post" /></a>
+</section>
+
+<section class="step">
+  <h2>10. fe-user — the published page renders the AI article with the override styles</h2>
+  <p>The public page renders (HTTP&nbsp;200, <b>not</b> the 404 page) showing the <b>AI-generated article</b>
+  (&ldquo;VBWD: A Privacy-First Alternative to Google Analytics&rdquo; + body) with the <b>AI-generated
+  <code>source_css</code></b> applied — serif hero typography, headings and generous spacing, reaching for the
+  reference blog-post aesthetic. <span class="ok">Observed: AI content + AI styling, live on the public
+  storefront — the full round-trip.</span></p>
+  <a href="s41-cms-ai-shots/step-10-fe-user-rendered.png"><img src="s41-cms-ai-shots/step-10-fe-user-rendered.png" alt="fe-user published page with override styles" /></a>
+</section>
+
+<section class="step">
+  <h2>11. Reference — backlinko.com/google-analytics-alternatives</h2>
+  <p>The reference page the operator asked the AI to emulate (captured best-effort; the site may rate-limit
+  headless browsers). Side-by-side, the AI override CSS reaches for a similar polished blog-post aesthetic
+  (proof-of-work, human-judged).</p>
+  <a href="s41-cms-ai-shots/step-11-reference-backlinko.png"><img src="s41-cms-ai-shots/step-11-reference-backlinko.png" alt="Reference backlinko page" /></a>
+</section>
+
+<div class="findings">
+<b>Findings &amp; follow-ups (surfaced by this live run):</b>
+<table>
+<tr><th>#</th><th>Finding</th><th>Status</th></tr>
+<tr><td>1</td><td><b>AI article body did not persist (Slice 3c).</b> Root cause (post path): the TipTap Visual editor's <code>htmlValue</code> watch re-seeds via <code>setContent</code>, whose <code>onUpdate</code> echoes back a StarterKit-<i>normalised</i> (wrapper-stripped) value that overwrote the AI HTML <code>applyEditorPatch</code> had set. <b>Fixed:</b> <code>applyEditorPatch</code> now calls <code>tiptapEditor.setFromHtml(value)</code> (emits verbatim, leaves the doc non-empty) so the echo can't clobber. Verified live: saved <code>content_html</code> = 1,633 chars + rendered on fe-user. (CodeMirror/pages path is already controlled.)</td><td class="ok">FIXED</td></tr>
+<tr><td>2</td><td><b>30s api-client timeout aborted slow LLM calls.</b> Fixed: <code>CmsAiPanel</code> passes a 300s per-request timeout to <code>/generate</code> + <code>/generate-image</code> (cms-ai unit tests green).</td><td class="ok">FIXED</td></tr>
+<tr><td>3</td><td><b>fe-admin nginx proxy ~60s read timeout</b> 504s long generations even though the backend returns 200 (a detailed article took ~64s). The walkthrough keeps the article concise; <b>prod note:</b> raise the proxy read timeout on the <code>cms-ai</code> routes (or cap generation length) so real long generations don't 504.</td><td class="gap">PROD NOTE</td></tr>
+<tr><td>4</td><td><b>AI action dropdown does not auto-close on select</b> (fe-core <code>&lt;Dropdown&gt;</code> custom-slot items don't close it). Minor UX nit; the walkthrough dismisses it with Escape. Fix: a <code>close</code> scoped-slot on fe-core <code>Dropdown</code> (needs a dist rebuild).</td><td class="gap">OPEN (minor)</td></tr>
+<tr><td>5</td><td><b>Create flow persists new posts as draft</b> regardless of the selected status (only an update honours <code>published</code>; a published post also needs a <code>published_at</code> to be served at <code>/cms/posts/&lt;slug&gt;</code>). Pre-existing <code>cms</code>/<code>cms-admin</code> behaviour; the walkthrough re-saves + sets <code>published_at</code>. Worth confirming intended.</td><td class="gap">NOTED</td></tr>
+</table>
+<p><b>Net:</b> the LoopForge engine, backend <code>/generate</code> + <code>/generate-image</code>, image→global-gallery,
+<b>article→<code>content_html</code> (persisted, Slice 3c)</b>, and restyle→<code>source_css</code>→public-render
+are all <b>proven live and GREEN</b>. No open functional gaps; remaining items are a prod proxy-timeout note and a
+minor dropdown UX nit.</p>
+</div>
+
+</body></html>
