@@ -1,0 +1,11 @@
+{
+  "request_context": ["title", "content_html", "type"],
+  "response_fields": {
+    "meta_title": { "type": "string" },
+    "meta_description": { "type": "string" },
+    "meta_keywords": { "type": "string" },
+    "og_title": { "type": "string" },
+    "og_description": { "type": "string" },
+    "schema_json": { "type": "object" }
+  }
+}

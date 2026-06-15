@@ -1,0 +1,12 @@
+# Runtime dependencies for the cms-ai plugin's LoopForge engine.
+#
+# These are PLUGIN-LOCAL deps (not core requirements). LoopForge drives the
+# provider SDKs directly; the unit suite mocks the clients but still imports
+# the packages at module load, so they must be installed in the gate env.
+# Pillow + requests are already provided by core requirements.txt.
+openai==2.41.1
+anthropic==0.109.1
+replicate==1.0.7
+# The LoopForge flow files (loopforge-flow-*.yaml) are YAML; the asset loader
+# reads them with PyYAML. Not a core dependency.
+PyYAML==6.0.2

@@ -1,0 +1,7 @@
+{
+  "request_context": ["title", "content_html", "source_css", "type"],
+  "response_fields": {
+    "source_css": { "type": "string" },
+    "content_html": { "type": "string" }
+  }
+}

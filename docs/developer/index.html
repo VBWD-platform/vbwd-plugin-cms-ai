@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>cms-ai — developer documentation (S41)</title>
+<style>
+:root { color-scheme: light dark; }
+* { box-sizing: border-box; }
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  line-height: 1.6; color: #1f2328; background: #ffffff;
+  max-width: 900px; margin: 0 auto; padding: 2.5rem 1.5rem 5rem;
+}
+h1, h2, h3, h4 { line-height: 1.25; font-weight: 600; margin-top: 1.8em; margin-bottom: .6em; }
+h1 { font-size: 2rem; border-bottom: 1px solid #d8dee4; padding-bottom: .3em; margin-top: 0; }
+h2 { font-size: 1.5rem; border-bottom: 1px solid #d8dee4; padding-bottom: .3em; }
+h3 { font-size: 1.2rem; }
+h4 { font-size: 1.05rem; }
+p { margin: .8em 0; }
+a { color: #0969da; text-decoration: none; }
+a:hover { text-decoration: underline; }
+code {
+  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  font-size: .88em; background: #eff1f3; padding: .15em .4em; border-radius: 5px;
+}
+pre {
+  background: #f6f8fa; border: 1px solid #d8dee4; border-radius: 8px;
+  padding: 1rem; overflow-x: auto; font-size: .85rem; line-height: 1.45;
+}
+pre code { background: none; padding: 0; font-size: inherit; }
+blockquote {
+  margin: 1em 0; padding: .2em 1em; color: #57606a;
+  border-left: 4px solid #d0d7de; background: #f6f8fa; border-radius: 0 6px 6px 0;
+}
+blockquote p { margin: .5em 0; }
+table { border-collapse: collapse; width: 100%; margin: 1.2em 0; font-size: .92rem; display: block; overflow-x: auto; }
+th, td { border: 1px solid #d0d7de; padding: .5em .8em; text-align: left; vertical-align: top; }
+th { background: #f6f8fa; font-weight: 600; }
+tr:nth-child(even) td { background: #fafbfc; }
+ul, ol { margin: .8em 0; padding-left: 1.6em; }
+li { margin: .3em 0; }
+hr { border: none; border-top: 1px solid #d8dee4; margin: 2em 0; }
+@media (prefers-color-scheme: dark) {
+  body { color: #e6edf3; background: #0d1117; }
+  h1, h2 { border-color: #30363d; }
+  a { color: #4493f8; }
+  code { background: #2d333b; }
+  pre { background: #161b22; border-color: #30363d; }
+  blockquote { color: #9198a1; background: #161b22; border-color: #30363d; }
+  th, td { border-color: #30363d; }
+  th { background: #161b22; }
+  tr:nth-child(even) td { background: #11151c; }
+  hr { border-color: #30363d; }
+}
+</style>
+</head>
+<body>
+<h1>cms-ai — developer documentation (Sprint S41)</h1>
+<p>The <strong><code>cms-ai</code></strong> plugin adds an admin-only AI helper to the CMS post editor: an operator&#x27;s prompt plus the page&#x27;s own context (title / excerpt / content / CSS) is turned into a <strong>validated patch of CMS fields</strong> by the configured LLM (OpenAI- or Anthropic-protocol, chosen by model name), and — on demand — into a generated image written to the global CMS gallery. Text generation is stateless (the route returns a patch; nothing is persisted server-side); image generation persists the asset to the gallery immediately. The whole pipeline runs through <strong>LoopForge</strong>, a clean, import-clean engine that ships with no Flask, no SQLAlchemy, no session and no <code>vbwd</code>/plugin imports, so it can later be extracted as a pip dependency or git submodule.</p>
+<h2>Documents</h2>
+<ul><li><strong><a href="loopforge.html">LoopForge — the clean pipeline engine</a></strong> — what LoopForge is, the package layout, the <code>StepTemplate</code> / <code>Flow</code> / <code>FlowRunner</code> model, the <code>LlmAdapter</code> surface + <code>select_adapter</code> model-name routing + the two SDK implementations, the JSON validate/repair/retry loop, how to add a new step / LLM provider / image provider, and the import-clean oracle that enforces the boundary.</li><li><strong><a href="field-manifest.html">The prompt + field manifest</a></strong> — the admin-editable triple under <code>${VBWD_VAR_DIR}/assets/cms-ai/prompts/</code>, how <code>request_context</code> and <code>response_fields</code> drive the request scope and the response JSON schema, how to add/remove a core field or an <strong>S77 custom-field key</strong>, how to ship a new template set / action, and the per-action requested-field sets.</li><li><strong><a href="image-generation.html">Image generation</a></strong> — the <code>ReplicateImageAdapter</code> (Replicate / Black Forest FLUX <code>black-forest-labs/flux-schnell</code>), the config keys, the <code>generate bytes → CmsImageService.upload_image → &lt;img data-cms-image&gt; → patch</code> flow, the immediate-persist / save-on-Save timing, and the <code>POST /generate-image</code> route with its gating and token safety.</li></ul>
+<h2>At a glance</h2>
+<table><thead><tr><th>Layer</th><th>Where</th><th>Responsibility</th></tr></thead><tbody><tr><td>Route</td><td><code>cms-ai/routes.py</code></td><td>admin-gated proxy; <code>POST /generate</code>, <code>POST /generate-image</code></td></tr><tr><td>Service</td><td><code>cms-ai/services/cms_ai_generate_service.py</code></td><td>build scope, derive schema, run flow, validate → patch</td></tr><tr><td>Service</td><td><code>cms-ai/services/cms_ai_image_service.py</code></td><td>bytes → gallery upload → append <code>&lt;img&gt;</code> → patch</td></tr><tr><td>Asset loader</td><td><code>cms-ai/services/prompt_asset_loader.py</code></td><td>resolve flow + template + manifest (var-dir override wins)</td></tr><tr><td>Engine</td><td><code>loopforge/</code> (<code>template</code>, <code>flow</code>, <code>adapter</code>, <code>image</code>, …)</td><td>pure, import-clean LLM/image pipeline</td></tr></tbody></table>
+<p>Two routes, both <code>@require_admin</code> + <code>cms.manage</code>, under the prefix <code>/api/v1/plugins/cms-ai</code>:</p>
+<ul><li><code>POST /api/v1/plugins/cms-ai/generate</code> → <code>{patch, provider, model}</code></li><li><code>POST /api/v1/plugins/cms-ai/generate-image</code> → <code>{patch, image}</code></li></ul>
+<p>The plugin declares a hard dependency on the <strong><code>cms</code></strong> plugin (it reuses CMS&#x27;s global image gallery) and a soft, runtime-resolved dependency on <strong>S77</strong> (custom-field defs), degrading to core fields when S77 is absent.</p>
+<h2>Screenshots</h2>
+<p>A live walkthrough report — the <strong>live proof</strong> of the editor actions and image generation end to end — is published separately at:</p>
+<ul><li><a href="../../../../../docs/dev_log/20260613/walkthrough/s41-WALK-REPORT-cms-ai.html">S41 cms-ai walkthrough report</a></li></ul>
+<p>(The report is generated by the sprint&#x27;s walkthrough run; this page links to it rather than embedding the captures.)</p>
+</body>
+</html>

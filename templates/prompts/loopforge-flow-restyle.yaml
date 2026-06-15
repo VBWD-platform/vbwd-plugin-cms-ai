@@ -1,0 +1,5 @@
+flow:
+  name: restyle
+  steps:
+    - template: template-1.json
+      vars: vars-restyle.json

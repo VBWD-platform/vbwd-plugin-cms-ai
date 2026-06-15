@@ -1,0 +1,123 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>cms-ai — image generation</title>
+<style>
+:root { color-scheme: light dark; }
+* { box-sizing: border-box; }
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  line-height: 1.6; color: #1f2328; background: #ffffff;
+  max-width: 900px; margin: 0 auto; padding: 2.5rem 1.5rem 5rem;
+}
+h1, h2, h3, h4 { line-height: 1.25; font-weight: 600; margin-top: 1.8em; margin-bottom: .6em; }
+h1 { font-size: 2rem; border-bottom: 1px solid #d8dee4; padding-bottom: .3em; margin-top: 0; }
+h2 { font-size: 1.5rem; border-bottom: 1px solid #d8dee4; padding-bottom: .3em; }
+h3 { font-size: 1.2rem; }
+h4 { font-size: 1.05rem; }
+p { margin: .8em 0; }
+a { color: #0969da; text-decoration: none; }
+a:hover { text-decoration: underline; }
+code {
+  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  font-size: .88em; background: #eff1f3; padding: .15em .4em; border-radius: 5px;
+}
+pre {
+  background: #f6f8fa; border: 1px solid #d8dee4; border-radius: 8px;
+  padding: 1rem; overflow-x: auto; font-size: .85rem; line-height: 1.45;
+}
+pre code { background: none; padding: 0; font-size: inherit; }
+blockquote {
+  margin: 1em 0; padding: .2em 1em; color: #57606a;
+  border-left: 4px solid #d0d7de; background: #f6f8fa; border-radius: 0 6px 6px 0;
+}
+blockquote p { margin: .5em 0; }
+table { border-collapse: collapse; width: 100%; margin: 1.2em 0; font-size: .92rem; display: block; overflow-x: auto; }
+th, td { border: 1px solid #d0d7de; padding: .5em .8em; text-align: left; vertical-align: top; }
+th { background: #f6f8fa; font-weight: 600; }
+tr:nth-child(even) td { background: #fafbfc; }
+ul, ol { margin: .8em 0; padding-left: 1.6em; }
+li { margin: .3em 0; }
+hr { border: none; border-top: 1px solid #d8dee4; margin: 2em 0; }
+@media (prefers-color-scheme: dark) {
+  body { color: #e6edf3; background: #0d1117; }
+  h1, h2 { border-color: #30363d; }
+  a { color: #4493f8; }
+  code { background: #2d333b; }
+  pre { background: #161b22; border-color: #30363d; }
+  blockquote { color: #9198a1; background: #161b22; border-color: #30363d; }
+  th, td { border-color: #30363d; }
+  th { background: #161b22; }
+  tr:nth-child(even) td { background: #11151c; }
+  hr { border-color: #30363d; }
+}
+</style>
+</head>
+<body>
+<h1>Image generation — prompt → global gallery → content_html</h1>
+<blockquote><p>Developer documentation for the <code>cms-ai</code> plugin (Sprint S41). Covers the Replicate image adapter, the gallery upload path, and the <code>POST /generate-image</code> route.</p></blockquote>
+<h2>Overview</h2>
+<p>The image path is a first-class action driven by the editor&#x27;s <strong>&quot;Generate only image from the prompt&quot;</strong> checkbox. Unlike text generation (stateless, returns a patch only), the image path <strong>does persist</strong> — it writes the generated asset to the global CMS image gallery <strong>immediately</strong>, by the operator&#x27;s explicit intent.</p>
+<p>The split of responsibilities is deliberate:</p>
+<ul><li><strong>LoopForge <code>ReplicateImageAdapter</code></strong> turns a prompt into JPEG <strong>bytes</strong> — no DB, no gallery, no filesystem (keeps it extractable).</li><li><strong><code>CmsAiImageService</code></strong> composes the adapter with the gallery and the plugin config: it generates bytes, uploads them to the global gallery, and appends the canonical gallery <code>&lt;img&gt;</code> to the post body.</li><li><strong>CMS&#x27;s own <code>CmsImageService</code></strong> owns the actual upload — there is exactly one home for the gallery-upload logic (reuse, not duplication).</li></ul>
+<h2>The Replicate image adapter (<code>loopforge/image.py</code>)</h2>
+<p><code>ImageAdapter</code> is the Liskov-substitutable contract; <code>ReplicateImageAdapter</code> is the Replicate / Black Forest Labs FLUX implementation:</p>
+<pre><code>class ImageAdapter(ABC):
+    @abstractmethod
+    def generate(self, prompt: str, *, model=&quot;black-forest-labs/flux-schnell&quot;,
+                 width=1024, height=1024) -&gt; bytes: ...
+
+class ReplicateImageAdapter(ImageAdapter):
+    def __init__(self, *, api_token: str) -&gt; None
+    def generate(self, prompt, *, model=&quot;black-forest-labs/flux-schnell&quot;,
+                 width=1024, height=1024) -&gt; bytes</code></pre>
+<p><code>generate</code> builds <code>replicate.Client(api_token=...)</code>, calls <code>client.run(model, input={&quot;prompt&quot;: prompt, &quot;width&quot;: width, &quot;height&quot;: height})</code>, then normalises whatever Replicate returns into a single image URL, downloads it and re-encodes it as JPEG. It returns <strong>raw JPEG bytes only.</strong></p>
+<ul><li><strong>Response normalisation</strong> (<code>_resolve_image_url</code> / <code>_resolve_url_from_dict</code>) handles the shapes the SDK can emit: a list (first element), a <code>FileOutput</code> object exposing <code>.url</code>, a dict (<code>url</code> or <code>output[0]</code>), a plain URL string, or anything whose <code>str()</code> begins with <code>http</code>.</li><li><strong>Download</strong> (<code>_download</code>) uses <code>requests.get(..., timeout=30)</code> and raises on a bad status.</li><li><strong>Re-encode</strong> (<code>_to_jpeg_bytes</code>) opens the bytes with Pillow, converts to RGB if needed and saves as JPEG at quality 95.</li></ul>
+<p>Any SDK error, missing URL, download failure or decode failure becomes an <code>AdapterError</code> (a <code>LoopForgeError</code>). <strong>The token never appears in an error message.</strong></p>
+<h2>Config keys (<code>DEFAULT_CONFIG</code>, <code>plugins/cms-ai/__init__.py</code>)</h2>
+<table><thead><tr><th>Key</th><th>Default</th><th>Role</th></tr></thead><tbody><tr><td><code>image_enabled</code></td><td><code>True</code></td><td>master switch; off → endpoint 4xx&#x27;s</td></tr><tr><td><code>replicate_api_token</code></td><td><code>&quot;&quot;</code></td><td>Replicate token — <strong>server-side only</strong></td></tr><tr><td><code>image_model</code></td><td><code>black-forest-labs/flux-schnell</code></td><td>Replicate model id</td></tr><tr><td><code>image_width</code></td><td><code>1024</code></td><td>generated width (px)</td></tr><tr><td><code>image_height</code></td><td><code>1024</code></td><td>generated height (px)</td></tr></tbody></table>
+<p>All are exposed in <code>admin-config.json</code> under the <strong>Image Generation</strong> tab; <code>replicate_api_token</code> uses the <code>password</code> component.</p>
+<h2>The service flow (<code>cms-ai/services/cms_ai_image_service.py</code>)</h2>
+<pre><code>class CmsAiImageService:
+    def __init__(self, *, config, image_adapter, gallery_service) -&gt; None
+    def generate(self, *, prompt: str, content_html: str) -&gt; Dict[str, Any]</code></pre>
+<p><code>generate</code> runs four stages:</p>
+<ol><li><strong>Guard</strong> — <code>_guard_enabled</code> raises <code>CmsAiImageError(&quot;Image generation is disabled&quot;)</code> when <code>image_enabled</code> is falsy, and <code>CmsAiImageError(&quot;Image generation is not configured&quot;)</code> when <code>replicate_api_token</code> is blank. <code>_require_prompt</code> rejects an empty prompt.</li><li><strong>Generate bytes</strong> — <code>_generate_bytes</code> calls <code>self._image_adapter.generate(prompt, model=image_model, width=image_width, height=image_height)</code>. A <code>LoopForgeError</code> is caught and re-raised as <code>CmsAiImageError(&quot;Image generation failed&quot;)</code> (<strong>token never echoed</strong>).</li><li><strong>Upload to the global gallery</strong> — <code>_upload_to_gallery</code> hands the bytes to CMS&#x27;s own <code>CmsImageService.upload_image</code>:</li></ol>
+<pre><code>   gallery_service.upload_image(
+       file_data=image_bytes,
+       filename=&quot;ai-generated.jpg&quot;,
+       mime_type=&quot;image/jpeg&quot;,
+       caption=prompt,
+   )</code></pre>
+<p>This is the <strong>same global media gallery</strong> as <code>POST /api/v1/admin/cms/images/upload</code>. It returns the gallery image dict (<code>id</code>, <code>slug</code>, <code>url_path</code>, <code>caption</code>). Reuse here is enforced by the declared <code>cms</code> plugin dependency (<code>PluginMetadata.dependencies=[&quot;cms&quot;]</code>), so there is no duplicate upload logic.</p>
+<ol><li><strong>Append + return a patch</strong> — <code>_append_image</code> appends the canonical global-gallery <code>&lt;img&gt;</code> to the <strong>current</strong> <code>content_html</code>:</li></ol>
+<pre><code>   &lt;img src=&quot;{url_path}&quot; alt=&quot;{caption}&quot; data-cms-image=&quot;{slug}&quot;&gt;</code></pre>
+<p>(attribute values are HTML-escaped via <code>_escape_attribute</code>). The <code>data-cms-image=&quot;{slug}&quot;</code> marker is the canonical &quot;image from the global gallery&quot; markup the renderer already understands. The method returns:</p>
+<pre><code>   {
+     &quot;patch&quot;: { &quot;content_html&quot;: &quot;&lt;existing body&gt;&lt;img ...&gt;&quot; },
+     &quot;image&quot;: { &quot;id&quot;: &quot;...&quot;, &quot;slug&quot;: &quot;...&quot;, &quot;url_path&quot;: &quot;...&quot; }
+   }</code></pre>
+<h3>Persistence timing</h3>
+<blockquote><p>The <strong>image asset is persisted in the gallery immediately</strong> (stage 3). Only the <strong>post content reference</strong> waits for the operator to click <strong>Save</strong> — generate never auto-saves the post. If the operator discards the post, the gallery image simply remains in the gallery (reusable), which is the intended global-gallery behaviour.</p></blockquote>
+<h2>The route — <code>POST /api/v1/plugins/cms-ai/generate-image</code></h2>
+<p>Defined in <code>cms-ai/routes.py</code>, gated <code>@require_auth @require_admin @require_permission(&quot;cms.manage&quot;)</code> (URL prefix <code>/api/v1/plugins/cms-ai</code>).</p>
+<p><strong>Request:</strong></p>
+<pre><code>{
+  &quot;prompt&quot;: &quot;a watercolour mountain at dawn&quot;,
+  &quot;context&quot;: { &quot;content_html&quot;: &quot;&lt;p&gt;existing body&lt;/p&gt;&quot; }
+}</code></pre>
+<p><strong>Response (200):</strong></p>
+<pre><code>{
+  &quot;patch&quot;: { &quot;content_html&quot;: &quot;&lt;p&gt;existing body&lt;/p&gt;&lt;img src=\&quot;...\&quot; alt=\&quot;...\&quot; data-cms-image=\&quot;...\&quot;&gt;&quot; },
+  &quot;image&quot;: { &quot;id&quot;: &quot;...&quot;, &quot;slug&quot;: &quot;...&quot;, &quot;url_path&quot;: &quot;...&quot; }
+}</code></pre>
+<p>The route:</p>
+<ol><li><code>_check_enabled()</code> — returns 503 if the plugin system is unavailable, 404 if the <code>cms-ai</code> plugin entry is missing or not <code>enabled</code>, else the server-side config.</li><li>Validates <code>prompt</code> (non-empty string → else 400) and <code>context</code> (must be an object → else 400); reads <code>content_html</code> from <code>context</code>.</li><li><code>_build_image_service(config)</code> builds the service with a <code>ReplicateImageAdapter(api_token=config[&quot;replicate_api_token&quot;])</code> and the CMS gallery service obtained from the cms plugin&#x27;s own factory (<code>plugins.cms.src.routes._image_service()</code>).</li><li>On <code>CmsAiImageError</code> (disabled / unconfigured / empty prompt / generation failure) it logs and returns <strong><code>{&quot;error&quot;: &quot;Image generation failed&quot;}</code> with HTTP 400</strong> — a single safe message.</li></ol>
+<h3>Gating and token safety</h3>
+<ul><li><code>image_enabled = false</code> <strong>or</strong> an empty <code>replicate_api_token</code> → the service&#x27;s <code>_guard_enabled</code> raises and the route returns a <strong>4xx</strong> with a safe message. (In the editor UI the checkbox is correspondingly hidden/disabled.)</li><li>The Replicate <strong>token is server-side only</strong> — it lives in the plugin config and is never sent to the browser, never returned in the response body, and never placed into an error message (the adapter and service both normalise failures to token-free messages).</li></ul>
+<h2>Image steps inside a multi-step flow</h2>
+<p>The same <code>ReplicateImageAdapter</code> is also the <code>image</code> <strong>step</strong> referenced by the forward-compatible multi-step <code>article → seo → image</code> flow (see <code>loopforge.md</code> / <code>field-manifest.md</code>). In a flow, an image step is a <code>FlowStep(kind=&quot;image&quot;, output_key=..., image_model=..., image_width=..., image_height=...)</code> and the <code>FlowRunner</code> calls the adapter and merges <code>{output_key: image_bytes}</code> into the scope — the same adapter reached programmatically instead of via the editor checkbox. The editor action wires only the single-shot path described above.</p>
+</body>
+</html>

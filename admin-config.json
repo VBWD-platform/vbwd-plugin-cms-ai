@@ -1,0 +1,35 @@
+{
+  "tabs": [
+    {
+      "id": "llm",
+      "label": "LLM Settings",
+      "fields": [
+        { "key": "llm_api_endpoint", "label": "API Endpoint", "component": "input", "inputType": "text" },
+        { "key": "llm_api_key", "label": "API Key", "component": "input", "inputType": "password" },
+        { "key": "llm_model", "label": "Model", "component": "input", "inputType": "text" },
+        { "key": "temperature", "label": "Temperature", "component": "input", "inputType": "number", "min": 0, "max": 2 },
+        { "key": "max_tokens", "label": "Max Tokens", "component": "input", "inputType": "number", "min": 1, "max": 200000 },
+        { "key": "timeout", "label": "Timeout (seconds)", "component": "input", "inputType": "number", "min": 1, "max": 600 },
+        { "key": "json_retry_max", "label": "JSON Repair Retries", "component": "input", "inputType": "number", "min": 0, "max": 10 }
+      ]
+    },
+    {
+      "id": "image",
+      "label": "Image Generation",
+      "fields": [
+        { "key": "image_enabled", "label": "Enable Image Generation", "component": "checkbox" },
+        { "key": "replicate_api_token", "label": "Replicate API Token", "component": "input", "inputType": "password" },
+        { "key": "image_model", "label": "Image Model", "component": "input", "inputType": "text" },
+        { "key": "image_width", "label": "Image Width", "component": "input", "inputType": "number", "min": 64, "max": 4096 },
+        { "key": "image_height", "label": "Image Height", "component": "input", "inputType": "number", "min": 64, "max": 4096 }
+      ]
+    },
+    {
+      "id": "general",
+      "label": "General",
+      "fields": [
+        { "key": "debug_mode", "label": "Debug Mode", "component": "checkbox" }
+      ]
+    }
+  ]
+}

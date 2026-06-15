@@ -1,0 +1,72 @@
+{
+  "debug_mode": {
+    "type": "boolean",
+    "default": false,
+    "description": "Enable verbose cms-ai debug logging"
+  },
+  "llm_api_endpoint": {
+    "type": "string",
+    "default": "",
+    "description": "OpenAI-compatible base URL or full path (blank = provider default)"
+  },
+  "llm_api_key": {
+    "type": "string",
+    "default": "",
+    "description": "API key for the LLM provider (server-side only, never sent to the browser)"
+  },
+  "llm_model": {
+    "type": "string",
+    "default": "gpt-4o-mini",
+    "description": "Model name; provider inferred from prefix (claude-* -> Anthropic)"
+  },
+  "temperature": {
+    "type": "number",
+    "default": 0.7,
+    "description": "Sampling temperature for generation"
+  },
+  "max_tokens": {
+    "type": "number",
+    "default": 4000,
+    "description": "Maximum tokens for the model response"
+  },
+  "timeout": {
+    "type": "number",
+    "default": 60,
+    "description": "Request timeout in seconds"
+  },
+  "json_retry_max": {
+    "type": "number",
+    "default": 3,
+    "description": "Maximum JSON-repair retries when the model returns invalid JSON"
+  },
+  "prompts_dir": {
+    "type": "string",
+    "default": "",
+    "description": "Optional override of the asset-storage prompts directory"
+  },
+  "image_enabled": {
+    "type": "boolean",
+    "default": true,
+    "description": "Enable prompt-to-image generation (Replicate / Black Forest FLUX)"
+  },
+  "replicate_api_token": {
+    "type": "string",
+    "default": "",
+    "description": "Replicate API token for image generation (server-side only)"
+  },
+  "image_model": {
+    "type": "string",
+    "default": "black-forest-labs/flux-schnell",
+    "description": "Replicate image model id"
+  },
+  "image_width": {
+    "type": "number",
+    "default": 1024,
+    "description": "Generated image width in pixels"
+  },
+  "image_height": {
+    "type": "number",
+    "default": 1024,
+    "description": "Generated image height in pixels"
+  }
+}

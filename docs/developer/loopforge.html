@@ -1,0 +1,208 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>LoopForge — the clean pipeline engine</title>
+<style>
+:root { color-scheme: light dark; }
+* { box-sizing: border-box; }
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  line-height: 1.6; color: #1f2328; background: #ffffff;
+  max-width: 900px; margin: 0 auto; padding: 2.5rem 1.5rem 5rem;
+}
+h1, h2, h3, h4 { line-height: 1.25; font-weight: 600; margin-top: 1.8em; margin-bottom: .6em; }
+h1 { font-size: 2rem; border-bottom: 1px solid #d8dee4; padding-bottom: .3em; margin-top: 0; }
+h2 { font-size: 1.5rem; border-bottom: 1px solid #d8dee4; padding-bottom: .3em; }
+h3 { font-size: 1.2rem; }
+h4 { font-size: 1.05rem; }
+p { margin: .8em 0; }
+a { color: #0969da; text-decoration: none; }
+a:hover { text-decoration: underline; }
+code {
+  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  font-size: .88em; background: #eff1f3; padding: .15em .4em; border-radius: 5px;
+}
+pre {
+  background: #f6f8fa; border: 1px solid #d8dee4; border-radius: 8px;
+  padding: 1rem; overflow-x: auto; font-size: .85rem; line-height: 1.45;
+}
+pre code { background: none; padding: 0; font-size: inherit; }
+blockquote {
+  margin: 1em 0; padding: .2em 1em; color: #57606a;
+  border-left: 4px solid #d0d7de; background: #f6f8fa; border-radius: 0 6px 6px 0;
+}
+blockquote p { margin: .5em 0; }
+table { border-collapse: collapse; width: 100%; margin: 1.2em 0; font-size: .92rem; display: block; overflow-x: auto; }
+th, td { border: 1px solid #d0d7de; padding: .5em .8em; text-align: left; vertical-align: top; }
+th { background: #f6f8fa; font-weight: 600; }
+tr:nth-child(even) td { background: #fafbfc; }
+ul, ol { margin: .8em 0; padding-left: 1.6em; }
+li { margin: .3em 0; }
+hr { border: none; border-top: 1px solid #d8dee4; margin: 2em 0; }
+@media (prefers-color-scheme: dark) {
+  body { color: #e6edf3; background: #0d1117; }
+  h1, h2 { border-color: #30363d; }
+  a { color: #4493f8; }
+  code { background: #2d333b; }
+  pre { background: #161b22; border-color: #30363d; }
+  blockquote { color: #9198a1; background: #161b22; border-color: #30363d; }
+  th, td { border-color: #30363d; }
+  th { background: #161b22; }
+  tr:nth-child(even) td { background: #11151c; }
+  hr { border-color: #30363d; }
+}
+</style>
+</head>
+<body>
+<h1>LoopForge — the clean pipeline engine</h1>
+<blockquote><p>Developer documentation for the <code>cms-ai</code> plugin (Sprint S41). Package: <code>plugins/cms-ai/loopforge/</code>.</p></blockquote>
+<h2>What LoopForge is</h2>
+<p>LoopForge is a self-contained, <strong>import-clean</strong> multi-step LLM pipeline engine. A step template renders a prompt from a variable scope, a Liskov-substitutable LLM adapter (OpenAI- or Anthropic-protocol, chosen by model name) returns a <strong>validated JSON object</strong>, an image adapter (Replicate / Black Forest Labs FLUX) turns a prompt into JPEG bytes, and a flow runner threads an ordered list of steps so each step&#x27;s output feeds the next.</p>
+<p>It depends only on the standard library plus the provider SDKs (<code>openai</code>, <code>anthropic</code>, <code>replicate</code>) and <code>Pillow</code>/<code>requests</code> for image handling. It imports <strong>no</strong> Flask, <strong>no</strong> SQLAlchemy, <strong>no</strong> thread-local session, <strong>no</strong> <code>vbwd</code> core module and <strong>no</strong> other plugin. That import-clean boundary is what makes LoopForge extractable later as a pip dependency or a git submodule.</p>
+<blockquote><p><strong>Conceptual origin only.</strong> The <code>loopai</code> project (vendored under <code>plugins/cms-ai/cms-ai/loopai</code>) inspired the step-template / dual-protocol / JSON-repair / multi-step *concepts*. LoopForge is a fresh, SOLID rebuild — it does <strong>not</strong> import from <code>loopai</code>.</p></blockquote>
+<h2>Package layout</h2>
+<pre><code>plugins/cms-ai/loopforge/
+├── __init__.py     # public surface + run_flow() convenience entry
+├── template.py     # StepTemplate / RenderedStep: render a prompt from a scope
+├── flow.py         # Flow / FlowStep / FlowRunner: ordered multi-step pipeline
+├── adapter.py      # LlmAdapter (ABC) + OpenAiAdapter + AnthropicAdapter + select_adapter
+├── image.py        # ImageAdapter (ABC) + ReplicateImageAdapter
+├── json_io.py      # clean/parse/validate JSON + the repair/retry loop
+├── errors.py       # LoopForgeError (+ InvalidJsonError, AdapterError)
+└── tests/          # pure unit tests (SDK clients mocked, no network)</code></pre>
+<h3>Public surface (<code>loopforge/__init__.py</code>)</h3>
+<pre><code>from loopforge import (
+    StepTemplate, RenderedStep,
+    Flow, FlowStep, FlowRunner,
+    LlmAdapter, OpenAiAdapter, AnthropicAdapter, select_adapter,
+    ImageAdapter, ReplicateImageAdapter,
+    is_valid_json,
+    LoopForgeError, AdapterError, InvalidJsonError,
+    run_flow,
+)</code></pre>
+<p><code>run_flow</code> is a convenience entry for the common single-call case:</p>
+<pre><code>def run_flow(
+    flow: Flow,
+    scope: Optional[Dict[str, Any]] = None,
+    *,
+    llm_adapter: Optional[LlmAdapter] = None,
+    image_adapter: Optional[ImageAdapter] = None,
+) -&gt; dict</code></pre>
+<p>It builds a <code>FlowRunner(llm_adapter=..., image_adapter=...)</code> and returns <code>runner.run(flow, scope)</code>. Callers that already hold a runner should use it directly.</p>
+<h2>The StepTemplate / Flow / FlowRunner model</h2>
+<h3>StepTemplate (<code>template.py</code>)</h3>
+<p>A <code>StepTemplate</code> is plain data — <code>system_content</code>, <code>prompt</code>, <code>model</code>, <code>temperature</code> — where each string may carry <code>{{ variable }}</code> placeholders and single-level <code>{% if flag %}...{% endif %}</code> blocks. <code>render(scope)</code> substitutes the scope and returns an immutable <code>RenderedStep</code>:</p>
+<pre><code>@dataclass(frozen=True)
+class RenderedStep:
+    system_content: str
+    user_content: str
+    model: str
+    temperature: float</code></pre>
+<pre><code>class StepTemplate:
+    def __init__(self, *, system_content=&quot;&quot;, prompt=&quot;&quot;, model=&quot;&quot;, temperature=0.7) -&gt; None
+    @classmethod
+    def from_dict(cls, template_data: Mapping[str, Any]) -&gt; &quot;StepTemplate&quot;
+    def render(self, scope: Optional[Mapping[str, Any]] = None) -&gt; RenderedStep</code></pre>
+<p>Rendering is <strong>pure</strong>: unknown or missing variables render as empty strings and never raise. Jinja2 is preferred when available (it is already a backend dependency and gives the <code>{% if %}</code> blocks the shipped templates use); a minimal regex-based safe substituter is the fallback so LoopForge stays usable even without Jinja2 — <strong>no new heavy dependency is introduced.</strong> <code>from_dict</code> accepts the loopai-native <code>template-N.json</code> shape (<code>{model, temperature, system_content, prompt}</code>).</p>
+<h3>FlowStep / Flow (<code>flow.py</code>)</h3>
+<pre><code>@dataclass
+class FlowStep:
+    template: StepTemplate
+    kind: str = &quot;llm&quot;               # &quot;llm&quot; or &quot;image&quot;
+    json_schema: Optional[dict] = None
+    json_retry_max: int = 3
+    output_key: Optional[str] = None    # image steps: where bytes are merged
+    image_model: Optional[str] = None
+    image_width: Optional[int] = None
+    image_height: Optional[int] = None
+
+@dataclass
+class Flow:
+    name: str
+    steps: List[FlowStep] = field(default_factory=list)</code></pre>
+<h3>FlowRunner (<code>flow.py</code>)</h3>
+<pre><code>class FlowRunner:
+    def __init__(self, *, llm_adapter=None, image_adapter=None) -&gt; None
+    def run(self, flow: Flow, scope: Optional[Dict[str, Any]] = None) -&gt; dict</code></pre>
+<p><code>run</code> threads the scope through the steps: it starts from a copy of the caller&#x27;s scope, and for each <code>FlowStep</code> it renders the template against the <strong>accumulating scope</strong>, calls the step&#x27;s adapter, then <code>update()</code>s both the merged output and the accumulating scope with that step&#x27;s result. So a later step can read an earlier step&#x27;s output by key.</p>
+<ul><li>An <strong><code>llm</code></strong> step calls <code>self._llm_adapter.generate(...)</code> with the rendered system/user content, model, temperature, <code>json_schema</code> and <code>json_retry_max</code>, and returns the validated JSON dict.</li><li>An <strong><code>image</code></strong> step calls <code>self._image_adapter.generate(prompt, model, width, height)</code> (defaults <code>1024×1024</code>) and returns <code>{output_key: image_bytes}</code> (<code>output_key</code> defaults to <code>&quot;image_bytes&quot;</code>).</li><li>A missing adapter for the step kind raises <code>ValueError</code>.</li></ul>
+<p><strong>A single-step flow is just a flow of length 1.</strong> The editor actions are single-step today; the multi-step <code>article → seo → image</code> pipeline is the same runner with more steps appended — forward-compatible, not yet exercised in production.</p>
+<h2>The LlmAdapter surface (<code>adapter.py</code>)</h2>
+<p>One narrow, Liskov-substitutable contract every provider honours:</p>
+<pre><code>class LlmAdapter(ABC):
+    def __init__(self, *, api_key: str, endpoint: str = &quot;&quot;, max_tokens: int = 4096) -&gt; None
+    @abstractmethod
+    def generate(
+        self,
+        system_content: str,
+        user_content: str,
+        *,
+        model: str,
+        temperature: float,
+        json_schema: Optional[dict] = None,
+        json_retry_max: int = 3,
+    ) -&gt; dict</code></pre>
+<p><code>generate</code> returns the model&#x27;s reply parsed into a JSON object, raising <code>AdapterError</code> on SDK/transport failure and <code>InvalidJsonError</code> when no valid JSON is produced within <code>json_retry_max</code> attempts.</p>
+<h3><code>select_adapter</code> — model-name routing</h3>
+<pre><code>def select_adapter(model: str, **adapter_kwargs: Any) -&gt; LlmAdapter:
+    if model.startswith(&quot;claude-&quot;):
+        return AnthropicAdapter(**adapter_kwargs)
+    return OpenAiAdapter(**adapter_kwargs)</code></pre>
+<p><strong>The model name is the sole discriminator</strong> — <code>claude-*</code> → Anthropic, everything else → OpenAI. Callers never branch on provider; endpoint/key/ max-tokens still come from config and are passed through <code>adapter_kwargs</code>.</p>
+<h3>The two SDK implementations</h3>
+<p><strong><code>OpenAiAdapter</code></strong> drives the <code>openai</code> SDK. It builds <code>OpenAI(api_key=..., base_url=endpoint?)</code> and calls <code>client.chat.completions.create(...)</code> with <code>response_format={&quot;type&quot;: &quot;json_object&quot;}</code> to force a JSON object, reading <code>choices[0].message.content</code>. A non-empty <code>endpoint</code> lets it also drive any OpenAI-compatible endpoint. Any SDK exception becomes <code>AdapterError(&quot;OpenAI request failed&quot;)</code>.</p>
+<p><strong><code>AnthropicAdapter</code></strong> drives the <code>anthropic</code> SDK. It builds <code>anthropic.Anthropic(api_key=..., base_url=endpoint?)</code> and calls <code>client.messages.create(...)</code> with <code>system=system_content</code>, a single tool (<code>emit_json</code>) and <code>tool_choice={&quot;type&quot;: &quot;tool&quot;, &quot;name&quot;: &quot;emit_json&quot;}</code> to force a JSON object. The reply is extracted from the <code>tool_use</code> block&#x27;s <code>input</code> (JSON- dumped) or, failing that, the first text block. Any SDK exception becomes <code>AdapterError(&quot;Anthropic request failed&quot;)</code>.</p>
+<p>The lightweight <code>{field: &quot;type|null&quot;}</code> manifest schema is translated into the Anthropic tool&#x27;s <code>input_schema</code> via <code>_build_json_tool</code> / <code>_schema_to_properties</code> / <code>_normalise_schema_type</code> (the type token before the first <code>|</code> is mapped to a JSON-schema type, defaulting to <code>string</code>).</p>
+<blockquote><p><strong>The API key is never echoed</strong> into an error message or return value — every failure normalises to a safe <code>AdapterError</code> / <code>LoopForgeError</code>.</p></blockquote>
+<h2>The JSON validate / repair / retry loop (<code>json_io.py</code>)</h2>
+<p>Both adapters route every call through one shared loop (DRY):</p>
+<pre><code>def request_valid_json(
+    generate_text: Callable[[Optional[str]], str],
+    *,
+    json_schema: Optional[dict],
+    max_attempts: int,
+) -&gt; dict</code></pre>
+<p><code>generate_text</code> is invoked with an optional repair instruction — <code>None</code> on the first attempt, and a short re-prompt string on later attempts when the previous output failed to parse. Each raw reply is run through:</p>
+<ul><li><code>clean_json_text</code> — strips Markdown ```<code> </code>`<code>json </code>``` fences and surrounding whitespace.</li><li><code>parse_json_object</code> — parses and returns the value <strong>only if it is a JSON object</strong> (<code>dict</code>); a bare array/number/string is treated as invalid.</li><li><code>validate_against_schema</code> — with the lightweight manifest schema, enforces only that the value is an object (<code>None</code> schema means &quot;any object&quot;); business-level field filtering is the plugin service&#x27;s job.</li></ul>
+<p>After <code>max_attempts</code> invalid responses it raises <code>InvalidJsonError(&quot;Model did not return valid JSON after N attempt(s)&quot;)</code>. <code>is_valid_json(text)</code> and <code>dump_compact(value)</code> are also exported helpers.</p>
+<p>In <code>adapter.py</code>, <code>_run_repair_loop</code> wraps <code>request_valid_json</code> so any <code>LoopForgeError</code> propagates unchanged while any other unexpected exception becomes <code>AdapterError(&quot;LLM generation failed&quot;)</code>.</p>
+<h2>Error contract (<code>errors.py</code>)</h2>
+<pre><code>class LoopForgeError(Exception): ...          # base for every recoverable failure
+class InvalidJsonError(LoopForgeError): ...    # output not parseable/repairable
+class AdapterError(LoopForgeError): ...        # provider SDK call failed / empty</code></pre>
+<p>Every failure that crosses the LoopForge boundary surfaces as a <code>LoopForgeError</code> (or subtype), so callers depend on a single narrow error contract and never catch a provider SDK&#x27;s transport exceptions directly. <strong>No provider key is ever placed into an error message.</strong></p>
+<h2>How to extend LoopForge</h2>
+<h3>Add a new step to a flow</h3>
+<p>Append another <code>FlowStep</code> to a <code>Flow</code>. Because <code>FlowRunner.run</code> merges each step&#x27;s output back into the scope, a later step&#x27;s template can read an earlier step&#x27;s keys with <code>{{ ... }}</code>:</p>
+<pre><code>from loopforge import Flow, FlowStep, StepTemplate, FlowRunner
+
+flow = Flow(
+    name=&quot;article_then_seo&quot;,
+    steps=[
+        FlowStep(template=StepTemplate.from_dict(article_tpl),
+                 json_schema={&quot;content_html&quot;: &quot;string&quot;, &quot;title&quot;: &quot;string&quot;}),
+        FlowStep(template=StepTemplate.from_dict(seo_tpl),       # reads content_html
+                 json_schema={&quot;meta_title&quot;: &quot;string&quot;, &quot;meta_description&quot;: &quot;string&quot;}),
+    ],
+)
+result = FlowRunner(llm_adapter=adapter).run(flow, {&quot;user_prompt&quot;: &quot;...&quot;})</code></pre>
+<p>For an <strong>image</strong> step set <code>kind=&quot;image&quot;</code> and (optionally) <code>output_key</code>, <code>image_model</code>, <code>image_width</code>, <code>image_height</code>; provide an <code>image_adapter</code> to the runner.</p>
+<h3>Add a new LLM provider</h3>
+<ol><li>Subclass the <code>LlmAdapter</code> ABC and implement <code>generate(...)</code> honouring the exact signature and return contract (a JSON <code>dict</code>).</li><li>Route the call through <code>request_valid_json</code> (or <code>_run_repair_loop</code>) so it gets the shared repair/retry loop for free, and raise only <code>AdapterError</code> / <code>InvalidJsonError</code> — never leak the SDK exception or the key.</li><li>Wire the discriminator: extend <code>select_adapter(model)</code> so the new model prefix maps to your class (keep the model name as the only discriminator).</li></ol>
+<h3>Add a new image provider</h3>
+<ol><li>Subclass the <code>ImageAdapter</code> ABC and implement <code>generate(prompt, *, model, width, height) -&gt; bytes</code> returning <strong>JPEG bytes only</strong> — no gallery, no DB, no filesystem (that keeps the adapter extractable).</li><li>Raise <code>AdapterError</code> (a <code>LoopForgeError</code>) on any SDK or download failure.</li><li>The plugin selects the adapter; LoopForge does not auto-discover image providers (there is no <code>select_*</code> for images today).</li></ol>
+<h2>The import-clean rule and its oracle</h2>
+<p>The extractability guarantee is enforced by <code>loopforge/tests/test_import_clean.py</code>, which proves the boundary two ways:</p>
+<ul><li><strong><code>test_no_banned_imports_in_any_source_file</code></strong> — AST-scans every LoopForge source file (excluding <code>tests/</code>) for banned top-level imports (<code>flask</code>, <code>sqlalchemy</code>, <code>vbwd</code>, <code>plugins</code>) and banned name fragments (<code>session_manager</code>, <code>session_dependent</code>, <code>app_global_config</code>). Relative imports within the package are allowed.</li><li><strong><code>test_importing_package_does_not_pull_banned_modules</code></strong> — re-imports <code>loopforge</code> and asserts that doing so pulls <strong>no</strong> banned top-level module into <code>sys.modules</code> that was not already present.</li></ul>
+<p>Keep both green: if you add a dependency, it must not be Flask / SQLAlchemy / <code>vbwd</code> / another plugin, directly or transitively at import time.</p>
+<h2>Runtime dependencies</h2>
+<p>LoopForge&#x27;s plugin-local runtime deps are declared in <code>plugins/cms-ai/requirements.txt</code> (Pillow + requests come from core):</p>
+<pre><code>openai==2.41.1
+anthropic==0.109.1
+replicate==1.0.7
+PyYAML==6.0.2</code></pre>
+<p>(<code>PyYAML</code> is used by the plugin&#x27;s asset loader to read the flow files, not by LoopForge itself.)</p>
+</body>
+</html>

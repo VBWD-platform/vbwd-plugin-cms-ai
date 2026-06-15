@@ -1,0 +1,5 @@
+flow:
+  name: article
+  steps:
+    - template: template-1.json
+      vars: vars-article.json

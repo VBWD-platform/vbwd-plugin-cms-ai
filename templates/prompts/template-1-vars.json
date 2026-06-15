@@ -1,0 +1,8 @@
+{
+  "request_context": ["title", "excerpt", "content_html", "type"],
+  "response_fields": {
+    "content_html": { "type": "string" },
+    "title": { "type": "string" },
+    "excerpt": { "type": "string" }
+  }
+}

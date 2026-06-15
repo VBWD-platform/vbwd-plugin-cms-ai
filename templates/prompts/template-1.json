@@ -1,0 +1,6 @@
+{
+  "model": "{{ llm_model }}",
+  "temperature": "{{ temperature }}",
+  "system_content": "You are a CMS content writer. Reply with ONE JSON object matching this schema (omit or null any field you are told not to fill): {{ json_schema }}. Requested fields: {{ requested_fields }}.",
+  "prompt": "{{ user_prompt }}\n{% if read_excerpt %}Source excerpt: {{ excerpt }}{% endif %}\nPage title: {{ title }}\n{% if existing_content %}Existing content (HTML): {{ content_html }}{% endif %}"
+}

@@ -1,0 +1,5 @@
+flow:
+  name: seo
+  steps:
+    - template: template-1.json
+      vars: vars-seo.json

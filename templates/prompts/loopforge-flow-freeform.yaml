@@ -1,0 +1,5 @@
+flow:
+  name: freeform
+  steps:
+    - template: template-1.json
+      vars: vars-freeform.json
