@@ -208,6 +208,8 @@ class CmsAiGenerateService:
                 continue  # unknown key the manifest never requested
             if value is None:
                 continue  # null -> leave the field untouched
+            if _is_placeholder_value(value):
+                continue  # placeholder/empty -> treat as not filled
             if field_name == "schema_json" and not isinstance(value, dict):
                 continue  # JSON-LD must be an object
             if field_name == "source_css":
@@ -260,3 +262,35 @@ def _sanitise_css(value: Any) -> Optional[str]:
     if "<script" in value.lower():
         return None
     return value
+
+
+# Tokens a model may emit instead of real content. These are treated as
+# "not filled" (dropped from the patch) so the editor is never populated with a
+# placeholder — a defensive backstop on top of the prompt, which already tells
+# the model never to produce them.
+_PLACEHOLDER_VALUES = frozenset(
+    {
+        "<unknown>",
+        "unknown",
+        "todo",
+        "tbd",
+        "n/a",
+        "na",
+        "none",
+        "null",
+        "...",
+        "placeholder",
+        "[placeholder]",
+        "<placeholder>",
+    }
+)
+
+
+def _is_placeholder_value(value: Any) -> bool:
+    """True when a string value is empty/whitespace or a known placeholder token."""
+    if not isinstance(value, str):
+        return False
+    stripped = value.strip()
+    if not stripped:
+        return True
+    return stripped.lower() in _PLACEHOLDER_VALUES

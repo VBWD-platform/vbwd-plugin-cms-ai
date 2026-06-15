@@ -133,6 +133,24 @@ def test_patch_drops_unknown_keys_and_null_values():
     assert result["patch"] == {"content_html": "<p>kept</p>"}
 
 
+def test_patch_drops_placeholder_values():
+    """Defensive backstop: placeholder/empty values are treated as not filled."""
+    service, _runner = _service(
+        triple=_article_triple(),
+        output={
+            "content_html": "<UNKNOWN>",  # placeholder -> dropped
+            "excerpt": "   ",  # whitespace-only -> dropped
+            "title": "Getting Started",  # real -> kept
+        },
+    )
+
+    result = service.generate(
+        action="article", prompt="Write", read_excerpt=False, context={}
+    )
+
+    assert result["patch"] == {"title": "Getting Started"}
+
+
 def test_schema_json_must_be_an_object():
     triple = PromptTriple(
         flow={"name": "seo", "steps": [{}]},

@@ -111,13 +111,30 @@ class OpenAiAdapter(LlmAdapter):
         )
 
 
+def _normalize_anthropic_base_url(endpoint: str) -> str:
+    """Normalise a configured endpoint for the Anthropic SDK base URL.
+
+    The ``anthropic`` SDK appends its own ``/v1/...`` path, so the base URL must
+    NOT already end in ``/v1``. Operators commonly copy an OpenAI-style
+    ``https://api.anthropic.com/v1/`` endpoint (which is correct for the
+    OpenAI-compatible adapter but breaks the native SDK -> ``/v1/v1/messages``
+    -> 404). Strip a trailing ``/v1`` so that copied config still works. An empty
+    endpoint stays empty (the SDK then uses its own default).
+    """
+    base = (endpoint or "").rstrip("/")
+    if base.endswith("/v1"):
+        base = base[: -len("/v1")]
+    return base
+
+
 class AnthropicAdapter(LlmAdapter):
     """Anthropic adapter using the ``anthropic`` SDK; JSON forced via tool-use."""
 
     def _build_client(self) -> "anthropic.Anthropic":
         client_kwargs: dict[str, Any] = {"api_key": self._api_key}
-        if self._endpoint:
-            client_kwargs["base_url"] = self._endpoint
+        base_url = _normalize_anthropic_base_url(self._endpoint)
+        if base_url:
+            client_kwargs["base_url"] = base_url
         return anthropic.Anthropic(**client_kwargs)
 
     def generate(

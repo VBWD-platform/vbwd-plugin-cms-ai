@@ -8,9 +8,35 @@ import pytest
 from loopforge.adapter import (
     AnthropicAdapter,
     OpenAiAdapter,
+    _normalize_anthropic_base_url,
     select_adapter,
 )
 from loopforge.errors import AdapterError, InvalidJsonError
+
+
+@pytest.mark.parametrize(
+    "endpoint,expected",
+    [
+        ("", ""),
+        ("https://api.anthropic.com", "https://api.anthropic.com"),
+        # operators commonly copy the OpenAI-style ".../v1/" endpoint — the native
+        # Anthropic SDK adds its own /v1, so the trailing /v1 must be stripped.
+        ("https://api.anthropic.com/v1/", "https://api.anthropic.com"),
+        ("https://api.anthropic.com/v1", "https://api.anthropic.com"),
+        ("https://proxy.internal/anthropic/v1/", "https://proxy.internal/anthropic"),
+    ],
+)
+def test_normalize_anthropic_base_url_strips_trailing_v1(endpoint, expected):
+    assert _normalize_anthropic_base_url(endpoint) == expected
+
+
+def test_anthropic_adapter_omits_base_url_for_v1_endpoint():
+    """A copied '.../v1/' endpoint must not be passed verbatim (it 404s)."""
+    adapter = AnthropicAdapter(api_key="k", endpoint="https://api.anthropic.com/v1/")
+    with patch("loopforge.adapter.anthropic.Anthropic") as fake_anthropic:
+        adapter._build_client()
+    _, kwargs = fake_anthropic.call_args
+    assert kwargs.get("base_url") == "https://api.anthropic.com"
 
 
 # --- select_adapter routing -------------------------------------------------

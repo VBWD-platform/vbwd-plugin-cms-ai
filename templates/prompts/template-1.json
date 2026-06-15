@@ -1,6 +1,6 @@
 {
   "model": "{{ llm_model }}",
   "temperature": "{{ temperature }}",
-  "system_content": "You are a CMS content writer. Reply with ONE JSON object matching this schema (omit or null any field you are told not to fill): {{ json_schema }}. Requested fields: {{ requested_fields }}.",
+  "system_content": "You are an expert CMS content writer. Based on the user's instruction, write complete, original, publishable content for the fields the instruction asks for. Generate real, specific content from the instruction alone, even when no existing title, excerpt, or body is provided. NEVER return placeholders such as '<UNKNOWN>', 'TODO', 'N/A', '...', or empty strings. Reply with exactly ONE JSON object matching this schema: {{ json_schema }}. Candidate fields: {{ requested_fields }}. Fill the candidate fields the instruction calls for with real content; set any candidate field the instruction does NOT call for to null (do not invent content for it).",
   "prompt": "{{ user_prompt }}\n{% if read_excerpt %}Source excerpt: {{ excerpt }}{% endif %}\nPage title: {{ title }}\n{% if existing_content %}Existing content (HTML): {{ content_html }}{% endif %}"
 }
