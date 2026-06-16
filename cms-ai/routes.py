@@ -20,6 +20,10 @@ cms_ai_bp = Blueprint("cms_ai_plugin", __name__)
 PLUGIN_NAME = "cms-ai"
 MANAGE_PERMISSION = "cms.manage"
 
+# Fallbacks for the deliberate private-connection escape hatch (D-EscapeHatch).
+_DEFAULT_OVERRIDE_MODEL = "gpt-4o-mini"
+_DEFAULT_OVERRIDE_MAX_TOKENS = 4000
+
 
 def _check_enabled():
     """Return ``(config, None)`` when enabled, else ``(None, error_response)``."""
@@ -42,18 +46,76 @@ def _service_module():
 
 
 def _build_generate_service(config):
-    """Build the generate service with the asset loader + S77 port (if present)."""
+    """Build the generate service with the asset loader + S77 port (if present).
+
+    The LLM adapter + model come from the CORE LLM connection (S97.4): cms-ai
+    resolves the connection named by ``llm_connection_slug`` (empty ⇒ the active
+    default), builds the core adapter for it, and stamps ``last_active_at`` so
+    the admin can see which connection served the request. cms-ai itself no
+    longer holds an API key / endpoint / provider SDK.
+    """
     from importlib import import_module
 
     loader_module = import_module("plugins.cms-ai.cms-ai.services.prompt_asset_loader")
 
     field_defs_provider = _resolve_field_defs_provider()
     asset_loader = loader_module.PromptAssetLoader(config.get("prompts_dir", ""))
+    llm_adapter, model = _resolve_llm_adapter(config)
     return _service_module().CmsAiGenerateService(
         config=config,
         asset_loader=asset_loader,
         field_defs_provider=field_defs_provider,
+        llm_adapter=llm_adapter,
+        model=model,
     )
+
+
+def _resolve_llm_adapter(config):
+    """Resolve ``(adapter, model)`` for the generate call.
+
+    Default path (S97.4): the core ``llm_connection_service`` resolves the
+    connection (by slug, else the active default), the core ``select_adapter``
+    builds the provider adapter from it, and ``last_active_at`` is stamped so
+    the admin sees which connection was used.
+
+    Escape hatch (D-EscapeHatch): if the operator still supplies an explicit
+    private ``llm_api_key`` (+ optional endpoint/model) in plugin config, a
+    private adapter is built from those instead of the central connection.
+    """
+    from vbwd.llm.adapter import select_adapter
+
+    override_key = config.get("llm_api_key")
+    if override_key:
+        model = str(config.get("llm_model") or _DEFAULT_OVERRIDE_MODEL)
+        adapter = select_adapter(
+            model=model,
+            api_key=override_key,
+            endpoint=config.get("llm_api_endpoint", ""),
+            max_tokens=int(config.get("max_tokens", _DEFAULT_OVERRIDE_MAX_TOKENS)),
+        )
+        return adapter, model
+
+    connection_service = current_app.container.llm_connection_service()
+    slug = config.get("llm_connection_slug") or None
+    connection = (
+        connection_service.get_by_slug(slug)
+        if slug
+        else connection_service.get_default()
+    )
+    if connection is None or not getattr(connection, "is_active", False):
+        target = f"slug '{slug}'" if slug else "default"
+        raise _service_module().CmsAiGenerateError(
+            f"No active LLM connection for {target}"
+        )
+
+    adapter = select_adapter(
+        model=connection.model,
+        api_key=connection.api_key,
+        endpoint=connection.api_endpoint or "",
+        max_tokens=connection.max_tokens or _DEFAULT_OVERRIDE_MAX_TOKENS,
+    )
+    connection_service.stamp_last_active(connection.id)
+    return adapter, connection.model
 
 
 def _resolve_field_defs_provider():

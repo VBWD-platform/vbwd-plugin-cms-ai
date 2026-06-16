@@ -4,35 +4,10 @@
     "default": false,
     "description": "Enable verbose cms-ai debug logging"
   },
-  "llm_api_endpoint": {
+  "llm_connection_slug": {
     "type": "string",
     "default": "",
-    "description": "OpenAI-compatible base URL or full path (blank = provider default)"
-  },
-  "llm_api_key": {
-    "type": "string",
-    "default": "",
-    "description": "API key for the LLM provider (server-side only, never sent to the browser)"
-  },
-  "llm_model": {
-    "type": "string",
-    "default": "gpt-4o-mini",
-    "description": "Model name; provider inferred from prefix (claude-* -> Anthropic)"
-  },
-  "temperature": {
-    "type": "number",
-    "default": 0.7,
-    "description": "Sampling temperature for generation"
-  },
-  "max_tokens": {
-    "type": "number",
-    "default": 4000,
-    "description": "Maximum tokens for the model response"
-  },
-  "timeout": {
-    "type": "number",
-    "default": 60,
-    "description": "Request timeout in seconds"
+    "description": "Slug of the central LLM Connection to use (Settings > LLM Connections). Blank = the active default connection."
   },
   "json_retry_max": {
     "type": "number",

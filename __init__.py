@@ -22,12 +22,10 @@ if TYPE_CHECKING:
 DEFAULT_CONFIG: Dict[str, Any] = {
     "debug_mode": False,
     # --- LLM (text generation) ---
-    "llm_api_endpoint": "",  # base URL or full path (OpenAI-compatible)
-    "llm_api_key": "",
-    "llm_model": "gpt-4o-mini",  # provider inferred (claude-* -> Anthropic)
-    "temperature": 0.7,
-    "max_tokens": 4000,
-    "timeout": 60,
+    # The model/endpoint/key now live in a CORE "LLM Connection" (S97). cms-ai
+    # keeps only the optional slug of the connection to use; empty ⇒ the active
+    # default connection.
+    "llm_connection_slug": "",
     "json_retry_max": 3,  # LoopForge JSON-repair loop
     "prompts_dir": "",  # optional override of the asset-storage prompts dir
     # --- image generation (Replicate / Black Forest FLUX) — Slice 2 ---

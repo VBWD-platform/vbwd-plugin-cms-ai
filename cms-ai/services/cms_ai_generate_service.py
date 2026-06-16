@@ -9,9 +9,12 @@ for any custom-field key so the model emits valid values), runs the flow
 through a :class:`FlowRunner`, validates the model output against the manifest
 and returns the **patch** — only the model-filled, recognised fields.
 
-LoopForge stays pure: it receives endpoint/key/model/params and the rendered
-template as plain data and returns a dict. The service never persists anything
-(stateless generate; the operator owns persistence).
+LoopForge stays pure: it receives an **injected** LLM adapter plus the rendered
+template as plain data and returns a dict. The adapter is the CORE LLM adapter
+(``vbwd.llm``) resolved from the active LLM connection by the route and handed in
+here — cms-ai no longer owns an API key / endpoint / provider SDK (S97.4). The
+service never persists anything (stateless generate; the operator owns
+persistence).
 """
 
 from __future__ import annotations
@@ -27,7 +30,6 @@ from loopforge import (
     FlowStep,
     LoopForgeError,
     StepTemplate,
-    select_adapter,
 )
 
 from .prompt_asset_loader import PromptAssetLoader, PromptTriple
@@ -37,7 +39,6 @@ CMS_POST_ENTITY_TYPE = "cms_post"
 
 _DEFAULT_MODEL = "gpt-4o-mini"
 _DEFAULT_TEMPERATURE = 0.7
-_DEFAULT_MAX_TOKENS = 4000
 _DEFAULT_RETRY_MAX = 3
 
 
@@ -55,14 +56,21 @@ class CmsAiGenerateService:
         asset_loader: PromptAssetLoader,
         field_defs_provider: Optional[Any] = None,
         flow_runner_factory: Optional[Any] = None,
+        llm_adapter: Optional[Any] = None,
+        model: Optional[str] = None,
     ) -> None:
         self._config = config or {}
         self._asset_loader = asset_loader
         # The S77 port (``ITagsAndCustomFields``); optional so the service runs
         # with core fields only when S77 is absent.
         self._field_defs_provider = field_defs_provider
+        # The CORE LLM adapter (``vbwd.llm``) resolved from the active LLM
+        # connection by the route and injected here, plus the connection's model
+        # name. LoopForge stays pure by receiving this adapter (S97.4).
+        self._llm_adapter = llm_adapter
+        self._model = model
         # Injected for tests (a fake FlowRunner); production builds one bound to
-        # the model-selected LLM adapter.
+        # the injected core adapter.
         self._flow_runner_factory = flow_runner_factory or self._build_flow_runner
 
     def generate(
@@ -233,21 +241,17 @@ class CmsAiGenerateService:
         return Flow(name=action or "generate", steps=[step])
 
     def _build_flow_runner(self, model: str) -> FlowRunner:
-        """Build the production runner bound to the model-selected LLM adapter."""
-        adapter = select_adapter(
-            model,
-            api_key=self._config.get("llm_api_key", ""),
-            endpoint=self._config.get("llm_api_endpoint", ""),
-            max_tokens=int(self._config.get("max_tokens", _DEFAULT_MAX_TOKENS)),
-        )
-        return FlowRunner(llm_adapter=adapter)
+        """Build the production runner bound to the injected core LLM adapter."""
+        if self._llm_adapter is None:
+            raise CmsAiGenerateError("No LLM connection resolved for cms-ai")
+        return FlowRunner(llm_adapter=self._llm_adapter)
 
     def _resolve_model(self, triple: PromptTriple) -> str:
-        """The concrete model name (config overrides any template placeholder)."""
+        """The concrete model name (the resolved connection's model)."""
         return self._resolve_model_string()
 
     def _resolve_model_string(self) -> str:
-        return str(self._config.get("llm_model") or _DEFAULT_MODEL)
+        return str(self._model or _DEFAULT_MODEL)
 
 
 def _provider_for_model(model: str) -> str:

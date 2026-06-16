@@ -61,13 +61,14 @@ class _FakeRunner:
         return self._output
 
 
-def _service(*, triple, output, config=None, field_defs_provider=None):
+def _service(*, triple, output, config=None, field_defs_provider=None, model=None):
     runner = _FakeRunner(output)
     service = CmsAiGenerateService(
-        config=config or {"llm_model": "gpt-4o-mini"},
+        config=config or {},
         asset_loader=_loader_for(triple),
         field_defs_provider=field_defs_provider,
-        flow_runner_factory=lambda model: runner,
+        flow_runner_factory=lambda resolved_model: runner,
+        model=model or "gpt-4o-mini",
     )
     return service, runner
 
@@ -305,7 +306,7 @@ def test_provider_reported_from_model_name():
     service, _runner = _service(
         triple=_article_triple(),
         output={"content_html": "<p>x</p>"},
-        config={"llm_model": "claude-3-5-sonnet"},
+        model="claude-3-5-sonnet",
     )
 
     result = service.generate(

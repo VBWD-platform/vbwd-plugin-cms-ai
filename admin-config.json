@@ -4,12 +4,7 @@
       "id": "llm",
       "label": "LLM Settings",
       "fields": [
-        { "key": "llm_api_endpoint", "label": "API Endpoint", "component": "input", "inputType": "text" },
-        { "key": "llm_api_key", "label": "API Key", "component": "input", "inputType": "password" },
-        { "key": "llm_model", "label": "Model", "component": "input", "inputType": "text" },
-        { "key": "temperature", "label": "Temperature", "component": "input", "inputType": "number", "min": 0, "max": 2 },
-        { "key": "max_tokens", "label": "Max Tokens", "component": "input", "inputType": "number", "min": 1, "max": 200000 },
-        { "key": "timeout", "label": "Timeout (seconds)", "component": "input", "inputType": "number", "min": 1, "max": 600 },
+        { "key": "llm_connection_slug", "label": "LLM Connection Slug", "component": "input", "inputType": "text", "description": "Slug from Settings > LLM Connections. Blank uses the active default connection." },
         { "key": "json_retry_max", "label": "JSON Repair Retries", "component": "input", "inputType": "number", "min": 0, "max": 10 }
       ]
     },
