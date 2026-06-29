@@ -45,7 +45,7 @@ class CmsAiPlugin(BasePlugin):
     def metadata(self) -> PluginMetadata:
         return PluginMetadata(
             name="cms-ai",
-            version="1.0.0",
+            version="26.6",
             author="VBWD Team",
             description="LoopForge-driven CMS content & SEO generation",
             # Plugin-to-plugin deps: the image path reuses the cms plugin's
