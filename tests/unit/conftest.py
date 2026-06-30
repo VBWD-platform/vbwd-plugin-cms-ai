@@ -19,6 +19,17 @@ LOOPAI_ROOT = os.path.abspath(
 if LOOPAI_ROOT not in sys.path:
     sys.path.insert(0, LOOPAI_ROOT)
 
+# The loopai source (which provides the ``core`` namespace these tests import)
+# is vendored separately and gitignored, so it is ABSENT in CI / fresh clones.
+# Skip the loopai-dependent specs when it is missing instead of failing
+# collection with "No module named 'core'"; they still run in local dev where
+# loopai is vendored in.
+if not os.path.isdir(os.path.join(LOOPAI_ROOT, "core")):
+    collect_ignore = [
+        "test_logger_service_unified.py",
+        "test_file_adapter_no_hardcoded_log.py",
+    ]
+
 
 def _install_host_module_stubs() -> None:
     """Provide the two loopai-container-only modules LoggerService imports."""
